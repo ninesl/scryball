@@ -46,7 +46,18 @@ sb, err := scryball.NewWithConfig(scryball.ScryballConfig{
 cards, err := sb.Query("legal:standard")
 ```
 
-If two scryballs are referencing the same db file, or a scryball instance is referencing the same as the global config `Setconfig()
+**Important:** Each scryball instance should use its own database file to avoid race conditions:
+
+```go
+// Recommended - separate databases
+scryball.SetConfig(scryball.ScryballConfig{DBPath: "./global.db"})
+sb1, _ := scryball.NewWithConfig(scryball.ScryballConfig{DBPath: "./app1.db"})
+sb2, _ := scryball.NewWithConfig(scryball.ScryballConfig{DBPath: "./app2.db"})
+
+// Not Recommended - shared database (race conditions possible)  
+sb1, _ := scryball.NewWithConfig(scryball.ScryballConfig{DBPath: "./shared.db"})
+sb2, _ := scryball.NewWithConfig(scryball.ScryballConfig{DBPath: "./shared.db"})
+```
 
 
 ## Card Data
@@ -90,9 +101,34 @@ deck, err := scryball.ParseDecklist(deckText)
 fmt.Printf("%d cards\n", deck.NumberOfCards())        // 24
 fmt.Printf("%d sideboard\n", deck.NumberOfSideboardCards()) // 3
 
-// Validate format
-err = deck.ValidateConstructed()  // 60+ cards, 4-copy rule
-err = deck.ValidateLimited()      // 40+ cards
+// Also supports set symbol format (like when exporting from arena)
+deckText = `Deck
+4 Delver of Secrets (MID) 47
+3 Mountain (ANA) 32
+4 Lightning Bolt (STA) 42
+4 Island (ANA) 10
+4 Brainstorm (STA) 13
+4 Steam Vents (GRN) 257
+2 Counterspell (STA) 15
+4 Spirebluff Canal (KLR) 286
+4 Consider (MID) 44
+1 Negate (MOM) 68
+4 Mishra's Bauble (BRR) 34
+3 Scalding Tarn (MH2) 254
+4 Ragavan, Nimble Pilferer (MUL) 86
+4 Expressive Iteration (STX) 186
+3 Renegade Map (KLR) 265
+4 Unholy Heat (MH2) 145
+4 Dragon's Rage Channeler (MH2) 121
+
+Sideboard
+4 Aether Gust (M20) 42
+`
+
+deck, err = scryball.ParseDecklist(deckText)
+
+fmt.Printf("%d cards\n", deck.NumberOfCards())        // 60
+fmt.Printf("%d sideboard\n", deck.NumberOfSideboardCards()) // 4
 ```
 
 ## Context Support
