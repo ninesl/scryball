@@ -102,6 +102,7 @@ fmt.Printf("%d cards\n", deck.NumberOfCards())        // 24
 fmt.Printf("%d sideboard\n", deck.NumberOfSideboardCards()) // 3
 
 // Also supports set symbol format (like when exporting from arena)
+// Printings used are irrelevant as all cards returned will have all of their Printings embedded
 deckText = `Deck
 4 Delver of Secrets (MID) 47
 3 Mountain (ANA) 32

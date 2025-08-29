@@ -365,3 +365,161 @@ func TestParseCardLine(t *testing.T) {
 		}
 	}
 }
+
+// TestParseDecklist_Global tests the global ParseDecklist function
+func TestParseDecklist_Global(t *testing.T) {
+	decklistString := `4 Lightning Bolt
+20 Mountain
+
+Sideboard
+3 Pyroblast`
+
+	deck, err := ParseDecklist(decklistString)
+	if err != nil {
+		t.Fatalf("Global ParseDecklist failed: %v", err)
+	}
+
+	if deck.NumberOfCards() != 24 {
+		t.Errorf("Expected 24 maindeck cards, got %d", deck.NumberOfCards())
+	}
+
+	if deck.NumberOfSideboardCards() != 3 {
+		t.Errorf("Expected 3 sideboard cards, got %d", deck.NumberOfSideboardCards())
+	}
+}
+
+// TestParseDecklistWithContext_Global tests the global ParseDecklistWithContext function
+func TestParseDecklistWithContext_Global(t *testing.T) {
+	ctx := context.Background()
+	decklistString := `4 Lightning Bolt
+20 Mountain
+
+Sideboard
+3 Pyroblast`
+
+	deck, err := ParseDecklistWithContext(ctx, decklistString)
+	if err != nil {
+		t.Fatalf("Global ParseDecklistWithContext failed: %v", err)
+	}
+
+	if deck.NumberOfCards() != 24 {
+		t.Errorf("Expected 24 maindeck cards, got %d", deck.NumberOfCards())
+	}
+
+	if deck.NumberOfSideboardCards() != 3 {
+		t.Errorf("Expected 3 sideboard cards, got %d", deck.NumberOfSideboardCards())
+	}
+}
+
+// TestParseDecklist_Instance tests the instance ParseDecklist method
+func TestParseDecklist_Instance(t *testing.T) {
+	sb, err := NewWithConfig(ScryballConfig{})
+	if err != nil {
+		t.Fatalf("Failed to create Scryball instance: %v", err)
+	}
+	defer sb.db.Close()
+
+	decklistString := `4 Lightning Bolt
+20 Mountain
+
+Sideboard
+3 Pyroblast`
+
+	deck, err := sb.ParseDecklist(decklistString)
+	if err != nil {
+		t.Fatalf("Instance ParseDecklist failed: %v", err)
+	}
+
+	if deck.NumberOfCards() != 24 {
+		t.Errorf("Expected 24 maindeck cards, got %d", deck.NumberOfCards())
+	}
+
+	if deck.NumberOfSideboardCards() != 3 {
+		t.Errorf("Expected 3 sideboard cards, got %d", deck.NumberOfSideboardCards())
+	}
+}
+
+// TestParseDecklistWithContext_Instance tests the instance ParseDecklistWithContext method
+func TestParseDecklistWithContext_Instance(t *testing.T) {
+	ctx := context.Background()
+	
+	sb, err := NewWithConfig(ScryballConfig{})
+	if err != nil {
+		t.Fatalf("Failed to create Scryball instance: %v", err)
+	}
+	defer sb.db.Close()
+
+	decklistString := `4 Lightning Bolt
+20 Mountain
+
+Sideboard
+3 Pyroblast`
+
+	deck, err := sb.ParseDecklistWithContext(ctx, decklistString)
+	if err != nil {
+		t.Fatalf("Instance ParseDecklistWithContext failed: %v", err)
+	}
+
+	if deck.NumberOfCards() != 24 {
+		t.Errorf("Expected 24 maindeck cards, got %d", deck.NumberOfCards())
+	}
+
+	if deck.NumberOfSideboardCards() != 3 {
+		t.Errorf("Expected 3 sideboard cards, got %d", deck.NumberOfSideboardCards())
+	}
+}
+
+// TestParseDecklist_InstanceIndependence tests that instances maintain independent caches
+func TestParseDecklist_InstanceIndependence(t *testing.T) {
+	sb1, err := NewWithConfig(ScryballConfig{})
+	if err != nil {
+		t.Fatalf("Failed to create Scryball instance 1: %v", err)
+	}
+	defer sb1.db.Close()
+
+	sb2, err := NewWithConfig(ScryballConfig{})
+	if err != nil {
+		t.Fatalf("Failed to create Scryball instance 2: %v", err)
+	}
+	defer sb2.db.Close()
+
+	decklistString := `4 Lightning Bolt`
+
+	deck1, err := sb1.ParseDecklist(decklistString)
+	if err != nil {
+		t.Fatalf("Instance 1 ParseDecklist failed: %v", err)
+	}
+
+	deck2, err := sb2.ParseDecklist(decklistString)
+	if err != nil {
+		t.Fatalf("Instance 2 ParseDecklist failed: %v", err)
+	}
+
+	if deck1.NumberOfCards() != 4 || deck2.NumberOfCards() != 4 {
+		t.Errorf("Expected 4 cards each, got %d and %d", deck1.NumberOfCards(), deck2.NumberOfCards())
+	}
+
+	// Verify independent card objects
+	var card1, card2 *MagicCard
+	for card := range deck1.Maindeck {
+		card1 = card
+		break
+	}
+	for card := range deck2.Maindeck {
+		card2 = card
+		break
+	}
+
+	if card1 == nil || card2 == nil {
+		t.Fatal("Could not find cards in decks")
+	}
+
+	if card1.Name != card2.Name {
+		t.Errorf("Expected same card name, got %s vs %s", card1.Name, card2.Name)
+	}
+
+	// Different instances should have different card objects
+	if card1 == card2 {
+		t.Error("Expected different card instances for independent Scryball instances")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,72 +17,14 @@ type Decklist struct {
 	Sideboard map[*MagicCard]int // Card to quantity mapping (max 15 cards total)
 }
 
-// ParseDecklist parses an pasted string decklist and returns a Decklist.
-//
-// Format expected:
-//
-//	4 Lightning Bolt
-//	2 Counterspell
-//	4 Island
-//
-//	Sideboard
-//	3 Pyroblast
-//
-// Also supports format with set codes: (does not affect card.Printings, each MagicCard will have all it's printings)
-//
-//	4 Lightning Bolt (2ED) 161
-//	2 Counterspell (ICE) 64
-//
-// Behavior:
-//   - Automatically caches any cards not in database
-//   - Handles exact name matches
-//   - Returns error for ambiguous card names
-//   - Sideboard section must be preceded by "Sideboard" header
-//   - Sideboard limited to 15 total cards
-//
-// Returns:
-//   - *Decklist: Parsed deck with card objects and quantities
-//   - error: Parse errors, card lookup failures, or sideboard size violations
-//
-// Example:
-//
-//	deckString := `
-//	4 Lightning Bolt
-//	4 Counterspell
-//	20 Island
-//	20 Mountain
-//	12 Other Cards
-//
-//	Sideboard
-//	3 Pyroblast
-//	2 Red Elemental Blast
-//	`
-//	deck, err := scryball.ParseArenaDecklist(deckString)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	fmt.Printf("Deck has %d cards\n", deck.TotalCards())
-//	fmt.Printf("Sideboard has %d cards\n", deck.TotalSideboardCards())
-func ParseDecklist(decklist string) (*Decklist, error) {
-	ctx := context.Background()
-	return ParseDecklistWithContext(ctx, decklist)
-}
-
-// ParseDecklistWithContext parses an Arena-format decklist with context support.
-//
-// Accepts same format as ParseDecklist but supports context cancellation and timeouts.
-// Each card name is looked up via QueryCardWithContext for caching and validation.
-//
-// Returns:
-//   - *Decklist: Parsed deck with card objects and quantities
-//   - error: Context errors, parse errors, or card lookup failures
-func ParseDecklistWithContext(ctx context.Context, arenaExport string) (*Decklist, error) {
+// shared parsing implementation
+func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*Decklist, error) {
 	decklist := &Decklist{
 		Maindeck:  make(map[*MagicCard]int),
 		Sideboard: make(map[*MagicCard]int),
 	}
 
-	lines := strings.Split(arenaExport, "\n")
+	lines := strings.Split(decklistString, "\n")
 	var inSideboard bool
 	var sideboardTotal int
 
@@ -109,32 +52,38 @@ func ParseDecklistWithContext(ctx context.Context, arenaExport string) (*Decklis
 			continue // Skip malformed lines
 		}
 
-		// Get the card using our caching Query functions
+		// Get the card using instance methods
 		var magicCard *MagicCard
 
-		// First try exact card name lookup
-		magicCard, err = QueryCardWithContext(ctx, cardName)
-		if err != nil {
-			// If exact match fails, try searching
-			cards, searchErr := QueryWithContext(ctx, fmt.Sprintf("!\"%s\"", cardName))
+		// First check cache
+		magicCard, err = sb.FetchCardByExactName(ctx, cardName)
+		if err == sql.ErrNoRows {
+			// Not in cache, try API
+			// Search for exact match using the instance's client
+			cards, searchErr := sb.client.QueryForCards(fmt.Sprintf("!\"%s\"", cardName))
 			if searchErr != nil || len(cards) == 0 {
-				return nil, fmt.Errorf("card not found: %s", cardName)
+				// Try broader search
+				cards, searchErr = sb.client.QueryForCards(cardName)
+				if searchErr != nil || len(cards) == 0 {
+					return nil, fmt.Errorf("card not found: %s", cardName)
+				}
 			}
 
 			// Check for exact name match in results
-			var exactMatch *MagicCard
-			for _, card := range cards {
-				if strings.EqualFold(card.Name, cardName) {
-					exactMatch = card
+			var exactMatch *client.Card
+			for i := range cards {
+				if strings.EqualFold(cards[i].Name, cardName) {
+					exactMatch = &cards[i]
 					break
 				}
 			}
 
+			var apiCard *client.Card
 			if exactMatch != nil {
-				magicCard = exactMatch
+				apiCard = exactMatch
 			} else if len(cards) == 1 {
 				// If only one result, use it
-				magicCard = cards[0]
+				apiCard = &cards[0]
 			} else {
 				// Multiple cards, ambiguous
 				var names []string
@@ -144,6 +93,15 @@ func ParseDecklistWithContext(ctx context.Context, arenaExport string) (*Decklis
 				return nil, fmt.Errorf("ambiguous card name '%s', could be: %s",
 					cardName, strings.Join(names, ", "))
 			}
+
+			// Cache the card
+			magicCard, err = sb.InsertCardFromAPI(ctx, apiCard)
+			if err != nil {
+				return nil, fmt.Errorf("failed to cache card %s: %v", cardName, err)
+			}
+		} else if err != nil {
+			// Database error
+			return nil, fmt.Errorf("database error fetching %s: %v", cardName, err)
 		}
 
 		// Add to appropriate section
@@ -159,6 +117,98 @@ func ParseDecklistWithContext(ctx context.Context, arenaExport string) (*Decklis
 	}
 
 	return decklist, nil
+}
+
+// ParseDecklist parses an pasted string decklist and returns a Decklist.
+//
+// Format expected:
+//
+//	4 Lightning Bolt
+//	2 Counterspell
+//	4 Island
+//
+//	Sideboard
+//	3 Pyroblast
+//
+// Also supports format with set codes like when exported from Arena
+// (does not affect card.Printings, each MagicCard will have all it's printings)
+//
+//	4 Lightning Bolt (2ED) 161
+//	2 Counterspell (ICE) 64
+//
+// Behavior:
+//   - Automatically caches any cards not in database
+//   - Handles exact name matches
+//   - Returns error for ambiguous card names
+//   - Sideboard section must be preceded by "Sideboard" header
+//
+// Note: Uses global Scryball instance. Initialize with SetConfig() or defaults to in-memory DB.
+//
+// Example:
+//
+//	deckString := `
+//	4 Lightning Bolt
+//	4 Counterspell
+//	20 Island
+//	20 Mountain
+//
+//	Sideboard
+//	3 Pyroblast
+//	2 Red Elemental Blast
+//	`
+//	deck, err := scryball.ParseDecklist(deckString)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Deck has %d cards\n", deck.NumberOfCards()) // 48
+//	fmt.Printf("Sideboard has %d cards\n", deck.NumberOfSideboardCards()) // 5
+func ParseDecklist(decklist string) (*Decklist, error) {
+	ctx := context.Background()
+	return ParseDecklistWithContext(ctx, decklist)
+}
+
+// ParseDecklistWithContext parses an Arena-format decklist with context support.
+//
+// Accepts same format as ParseDecklist but supports context cancellation and timeouts.
+// Each card name is looked up via the global Scryball instance for caching and validation.
+//
+// Returns:
+//   - *Decklist: Parsed deck with card objects and quantities
+//   - error: Context errors, parse errors, or card lookup failures
+//
+// Note: Uses global Scryball instance. Initialize with SetConfig() or defaults to in-memory DB.
+func ParseDecklistWithContext(ctx context.Context, decklistString string) (*Decklist, error) {
+	sb, err := ensureCurrentScryball()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize scryball %v", err)
+	}
+	return sb.parseDecklist(ctx, decklistString)
+}
+
+// ParseDecklist parses a decklist using this Scryball instance's client and database.
+//
+// Format supported: Arena export format (see ParseDecklist for details)
+//
+// Behavior:
+//   - Uses this instance's database for caching
+//   - Uses this instance's client for API calls
+//   - Automatically caches any cards not in database
+//   - Returns error for ambiguous card names
+func (s *Scryball) ParseDecklist(decklistString string) (*Decklist, error) {
+	ctx := context.Background()
+	return s.ParseDecklistWithContext(ctx, decklistString)
+}
+
+// ParseDecklistWithContext parses a decklist using this Scryball instance's client and database with context support.
+//
+// Behavior:
+//   - Uses this instance's database for caching
+//   - Uses this instance's client for API calls
+//   - Automatically caches any cards not in database
+//   - Returns error for ambiguous card names
+//   - Respects context cancellation and timeouts
+func (s *Scryball) ParseDecklistWithContext(ctx context.Context, decklistString string) (*Decklist, error) {
+	return s.parseDecklist(ctx, decklistString)
 }
 
 // parseCardLine extracts quantity and card name from a deck line.
@@ -320,11 +370,9 @@ func (d *Decklist) ValidateDecklist(minCards, maxCards, maxSideboard int) error 
 
 // ValidateConstructed validates the deck for Constructed formats (60+ cards, 15 card sideboard).
 //
-// Enforces the 4-copy rule (except basic lands and special cards like Relentless Rats).
-// Minimum 60 cards in maindeck, maximum 15 in sideboard.
+// Enforces the 4-copy rule (except basic lands and special cards ie. Relentless Rats)
 //
-// Returns:
-//   - error: nil if valid, otherwise describes the first validation failure
+// Minimum 60 cards in maindeck, maximum 15 in sideboard.
 func (d *Decklist) ValidateConstructed() error {
 	d.ValidateFourOfs()
 	return d.ValidateDecklist(60, 0, 15)
@@ -332,18 +380,12 @@ func (d *Decklist) ValidateConstructed() error {
 
 // ValidateLimited validates the deck for Limited formats like Draft or Sealed (40+ cards).
 //
-// Enforces the 4-copy rule (except basic lands and special cards).
-// Minimum 40 cards in maindeck, maximum 15 in sideboard.
-//
-// Returns:
-//   - error: nil if valid, otherwise describes the first validation failure
+// Minimum 40 cards in maindeck, no maximum in the sideboard.
 func (d *Decklist) ValidateLimited() error {
-	d.ValidateFourOfs()
-	return d.ValidateDecklist(40, 0, 15)
+	return d.ValidateDecklist(40, 0, 0)
 }
 
 func (d *Decklist) ValidateSingleton() error {
-	// Check for more than 4 copies of non-basic cards
 	for card, qty := range d.Maindeck {
 		if qty > 1 && !isBasicLand(card) && !isSpecialCard(card) {
 			return fmt.Errorf("maindeck has %d copies of %s, maximum is 1", qty, card.Name)
@@ -353,7 +395,6 @@ func (d *Decklist) ValidateSingleton() error {
 }
 
 func (d *Decklist) ValidateFourOfs() error {
-	// Check for more than 4 copies of non-basic cards
 	for card, qty := range d.Maindeck {
 		if qty > 4 && !isBasicLand(card) && !isSpecialCard(card) {
 			return fmt.Errorf("maindeck has %d copies of %s, maximum is 4", qty, card.Name)
@@ -362,12 +403,10 @@ func (d *Decklist) ValidateFourOfs() error {
 	return nil
 }
 
-// isBasicLand checks if a card is a basic land.
 func isBasicLand(card *MagicCard) bool {
 	return isBasicLandName(card.Name)
 }
 
-// isBasicLandName checks if a card name is a basic land.
 func isBasicLandName(name string) bool {
 	basicLands := []string{
 		"Plains", "Island", "Swamp", "Mountain", "Forest",
@@ -376,20 +415,14 @@ func isBasicLandName(name string) bool {
 		"Wastes", "Snow-Covered Wastes",
 	}
 
-	for _, basic := range basicLands {
-		if strings.EqualFold(name, basic) {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(basicLands, name)
 }
 
-// isSpecialCard checks if a card has special deck construction rules.
 func isSpecialCard(card *MagicCard) bool {
 	return isSpecialCardName(card.Name)
 }
 
-// isSpecialCardName checks if a card name has special deck construction rules.
+// TODO: a better impl than this.
 func isSpecialCardName(name string) bool {
 	// Cards that can have any number in deck
 	specialCards := []string{
@@ -408,124 +441,4 @@ func isSpecialCardName(name string) bool {
 		}
 	}
 	return false
-}
-
-// ParseDecklist parses a decklist using this Scryball instance's client and database.
-//
-// Format supported: Arena export format (see ParseDecklist for details)
-//
-// Behavior:
-//   - Uses this instance's database for caching
-//   - Uses this instance's client for API calls
-//   - Automatically caches any cards not in database
-//   - Returns error for ambiguous card names
-//
-// Returns:
-//   - *Decklist: Parsed deck with card objects and quantities
-//   - error: Parse errors or card lookup failures
-func (s *Scryball) ParseDecklist(decklistString string) (*Decklist, error) {
-	ctx := context.Background()
-	return s.ParseDecklistWithContext(ctx, decklistString)
-}
-
-// ParseDecklistWithContext is like ParseDecklist but accepts a context.
-func (s *Scryball) ParseDecklistWithContext(ctx context.Context, decklistString string) (*Decklist, error) {
-	decklist := &Decklist{
-		Maindeck:  make(map[*MagicCard]int),
-		Sideboard: make(map[*MagicCard]int),
-	}
-
-	lines := strings.Split(decklistString, "\n")
-	var inSideboard bool
-	var sideboardTotal int
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// Skip empty lines
-		if line == "" {
-			continue
-		}
-
-		// Check for section headers
-		if strings.EqualFold(line, "Deck") {
-			inSideboard = false
-			continue
-		}
-		if strings.EqualFold(line, "Sideboard") {
-			inSideboard = true
-			continue
-		}
-
-		// Parse card line
-		quantity, cardName, err := parseCardLine(line)
-		if err != nil {
-			continue // Skip malformed lines
-		}
-
-		// Get the card using instance methods
-		var magicCard *MagicCard
-
-		// First check cache
-		magicCard, err = s.FetchCardByExactName(ctx, cardName)
-		if err == sql.ErrNoRows {
-			// Not in cache, try API
-			// Search for exact match using the instance's client
-			cards, searchErr := s.client.QueryForCards(fmt.Sprintf("!\"%s\"", cardName))
-			if searchErr != nil || len(cards) == 0 {
-				// Try broader search
-				cards, searchErr = s.client.QueryForCards(cardName)
-				if searchErr != nil || len(cards) == 0 {
-					return nil, fmt.Errorf("card not found: %s", cardName)
-				}
-			}
-
-			// Check for exact name match in results
-			var exactMatch *client.Card
-			for i := range cards {
-				if strings.EqualFold(cards[i].Name, cardName) {
-					exactMatch = &cards[i]
-					break
-				}
-			}
-
-			var apiCard *client.Card
-			if exactMatch != nil {
-				apiCard = exactMatch
-			} else if len(cards) == 1 {
-				// If only one result, use it
-				apiCard = &cards[0]
-			} else {
-				// Multiple cards, ambiguous
-				var names []string
-				for _, c := range cards {
-					names = append(names, c.Name)
-				}
-				return nil, fmt.Errorf("ambiguous card name '%s', could be: %s",
-					cardName, strings.Join(names, ", "))
-			}
-
-			// Cache the card
-			magicCard, err = s.InsertCardFromAPI(ctx, apiCard)
-			if err != nil {
-				return nil, fmt.Errorf("failed to cache card %s: %v", cardName, err)
-			}
-		} else if err != nil {
-			// Database error
-			return nil, fmt.Errorf("database error fetching %s: %v", cardName, err)
-		}
-
-		// Add to appropriate section
-		if inSideboard {
-			sideboardTotal += quantity
-			if sideboardTotal > 15 {
-				return nil, fmt.Errorf("sideboard exceeds 15 cards (has %d)", sideboardTotal)
-			}
-			decklist.Sideboard[magicCard] = quantity
-		} else {
-			decklist.Maindeck[magicCard] = quantity
-		}
-	}
-
-	return decklist, nil
 }
