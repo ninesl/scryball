@@ -231,7 +231,7 @@ func (s *Scryball) buildMagicCardFromDB(ctx context.Context, oracleID, name, lay
 
 	return &MagicCard{
 		Card:      card,
-		printings: printings,
+		Printings: printings,
 	}, nil
 }
 
