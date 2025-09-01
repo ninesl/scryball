@@ -19,7 +19,7 @@ import (
 // Oracle ID uniquely identifies the card across all printings.
 type MagicCard struct {
 	*client.Card
-	printings []Printing
+	Printings []Printing
 }
 
 // Printing represents a single printing of a card in a specific set.
