@@ -11,6 +11,23 @@ import (
 )
 
 func main() {
+	// Test: Search for Lightning Bolt specifically
+	fmt.Println("=== Testing Query() with Lightning Bolt ===")
+	boltCards, err := scryball.Query("name:\"Lightning Bolt\"")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Query returned %d Lightning Bolt cards\n", len(boltCards))
+	for i, card := range boltCards {
+		fmt.Printf("Card %d: %s - %d printings\n", i+1, card.Name, len(card.Printings))
+		if len(card.Printings) <= 1 {
+			fmt.Printf("  ❌ WARNING: Only %d printing(s) found!\n", len(card.Printings))
+		} else {
+			fmt.Printf("  ✅ SUCCESS: Found %d printings\n", len(card.Printings))
+		}
+	}
+	fmt.Println()
+
 	// Search for cards - automatically cached
 	cards, err := scryball.Query("color:blue cmc=1")
 	if err != nil {
@@ -18,6 +35,18 @@ func main() {
 	}
 
 	fmt.Printf("Found %d blue 1-mana cards\n", len(cards))
+	// Test first few cards to see if they have multiple printings
+	fmt.Println("=== Checking first 3 blue 1-mana cards for printings ===")
+	for i := 0; i < 3 && i < len(cards); i++ {
+		card := cards[i]
+		fmt.Printf("%s: %d printings", card.Name, len(card.Printings))
+		if len(card.Printings) <= 1 {
+			fmt.Printf(" ❌")
+		} else {
+			fmt.Printf(" ✅")
+		}
+		fmt.Println()
+	}
 
 	// Get a specific card - also cached
 	bolt, err := scryball.QueryCard("Lightning Bolt")

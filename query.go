@@ -127,18 +127,37 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 	if err != nil {
 		return nil, err
 	}
-	magicCards := make([]*MagicCard, len(apiCards))
-	oracleIDs := make([]string, len(apiCards))
+	// Group cards by oracle_id since unique:prints returns multiple printings per card
+	oracleMap := make(map[string][]*client.Card)
+	for i := range apiCards {
+		card := &apiCards[i]
+		if card.OracleID != nil {
+			oracleID := *card.OracleID
+			oracleMap[oracleID] = append(oracleMap[oracleID], card)
+		}
+	}
 
-	for i, card := range apiCards {
-		magicCard, err := sb.InsertCardFromAPI(ctx, &card)
+	// Process each unique card (by oracle_id)
+	magicCards := make([]*MagicCard, 0, len(oracleMap))
+	oracleIDs := make([]string, 0, len(oracleMap))
+
+	for oracleID, printings := range oracleMap {
+		// Store all printings for this card
+		for _, printing := range printings {
+			_, err := sb.InsertCardFromAPI(ctx, printing)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Fetch the complete card with all printings
+		magicCard, err := sb.FetchCardByExactOracleID(ctx, oracleID)
 		if err != nil {
 			return nil, err
 		}
-		magicCards[i] = magicCard
-		if magicCard.OracleID != nil {
-			oracleIDs[i] = *magicCard.OracleID
-		}
+
+		magicCards = append(magicCards, magicCard)
+		oracleIDs = append(oracleIDs, oracleID)
 	}
 
 	// Cache the query with oracle IDs from API fetch
