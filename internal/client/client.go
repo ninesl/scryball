@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ninesl/scryball/internal/scryfall"
 	_ "modernc.org/sqlite"
@@ -94,6 +95,9 @@ func NewClientWithOptions(co ClientOptions) (*Client, error) {
 }
 
 func (c *Client) makeRequest(endpoint string, result interface{}) error {
+	// Respect Scryfall's rate limit: 50-100ms delay between requests (10 requests per second)
+	time.Sleep(100 * time.Millisecond)
+
 	fullURL := c.baseURL + endpoint
 
 	req, err := http.NewRequest("GET", fullURL, nil)

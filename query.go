@@ -34,7 +34,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/ninesl/scryball/internal/client"
 	"github.com/ninesl/scryball/internal/scryfall"
@@ -118,36 +117,42 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 		return nil, err
 	}
 	// query does not exist, fetch from API
-	// Add unique=prints to ensure we get all printings of matching cards
-	queryWithPrints := query
-	if !strings.Contains(query, "unique:") {
-		queryWithPrints = query + " unique:prints"
-	}
-	apiCards, err := sb.client.QueryForCards(queryWithPrints)
+	// Don't add unique:prints - just use the original query
+	apiCards, err := sb.client.QueryForCards(query)
 	if err != nil {
 		return nil, err
 	}
-	// Group cards by oracle_id since unique:prints returns multiple printings per card
-	oracleMap := make(map[string][]*client.Card)
+
+	// Group cards by oracle_id - skip cards with null oracle_id
+	oracleMap := make(map[string]*client.Card)
 	for i := range apiCards {
 		card := &apiCards[i]
-		if card.OracleID != nil {
-			oracleID := *card.OracleID
-			oracleMap[oracleID] = append(oracleMap[oracleID], card)
+		if card.OracleID == nil {
+			// Skip cards with null oracle_id
+			continue
+		}
+		oracleID := *card.OracleID
+		// Keep the first card we see for this oracle_id
+		if _, exists := oracleMap[oracleID]; !exists {
+			oracleMap[oracleID] = card
 		}
 	}
 
-	// Process each unique card (by oracle_id)
+	// Process each unique card (by oracle_id) and ensure ALL printings are fetched
 	magicCards := make([]*MagicCard, 0, len(oracleMap))
 	oracleIDs := make([]string, 0, len(oracleMap))
 
-	for oracleID, printings := range oracleMap {
-		// Store all printings for this card
-		for _, printing := range printings {
-			_, err := sb.InsertCardFromAPI(ctx, printing)
-			if err != nil {
-				return nil, err
-			}
+	for oracleID, sampleCard := range oracleMap {
+		// Store the sample card first
+		_, err := sb.InsertCardFromAPI(ctx, sampleCard)
+		if err != nil {
+			return nil, err
+		}
+
+		// Now fetch ALL printings for this oracle_id using its PrintsSearchURI
+		err = sb.fetchAllPrintingsForCard(ctx, sampleCard)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch all printings for %s: %v", sampleCard.Name, err)
 		}
 
 		// Fetch the complete card with all printings
@@ -166,6 +171,34 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 	}
 
 	return magicCards, nil
+}
+
+// fetchAllPrintingsForCard uses the card's PrintsSearchURI to fetch ALL printings
+func (sb *Scryball) fetchAllPrintingsForCard(ctx context.Context, card *client.Card) error {
+	if card.OracleID == nil {
+		return fmt.Errorf("card %s has no oracle_id", card.Name)
+	}
+
+	// Use oracle_id to fetch ALL printings
+	query := fmt.Sprintf("oracleid:%s unique:prints", *card.OracleID)
+	allPrintings, err := sb.client.QueryForCards(query)
+	if err != nil {
+		return fmt.Errorf("failed to fetch all printings: %w", err)
+	}
+
+	// Store all printings
+	for _, printing := range allPrintings {
+		// Skip printings without oracle_id (e.g. reversible cards)
+		if printing.OracleID == nil {
+			continue
+		}
+		_, err := sb.InsertCardFromAPI(ctx, &printing)
+		if err != nil {
+			return fmt.Errorf("failed to store printing %s: %w", printing.ID, err)
+		}
+	}
+
+	return nil
 }
 
 // look for the card within the database, if not found will fetch from the scryfall API
