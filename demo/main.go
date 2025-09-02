@@ -48,6 +48,15 @@ func main() {
 	fmt.Println(*card.OracleText) // {T}: Add {C}{C}.
 	fmt.Println(*card.OracleID)   // Unique across all printings
 
+	// Test printings - Sol Ring should have many printings
+	fmt.Printf("Sol Ring has %d printings\n", len(card.Printings))
+	if len(card.Printings) > 0 {
+		fmt.Printf("First printing: %s (%s)\n", card.Printings[0].SetName, card.Printings[0].SetCode)
+		if len(card.Printings) > 1 {
+			fmt.Printf("Second printing: %s (%s)\n", card.Printings[1].SetName, card.Printings[1].SetCode)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

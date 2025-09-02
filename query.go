@@ -34,6 +34,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/ninesl/scryball/internal/client"
 	"github.com/ninesl/scryball/internal/scryfall"
@@ -117,7 +118,12 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 		return nil, err
 	}
 	// query does not exist, fetch from API
-	apiCards, err := sb.client.QueryForCards(query)
+	// Add unique=prints to ensure we get all printings of matching cards
+	queryWithPrints := query
+	if !strings.Contains(query, "unique:") {
+		queryWithPrints = query + " unique:prints"
+	}
+	apiCards, err := sb.client.QueryForCards(queryWithPrints)
 	if err != nil {
 		return nil, err
 	}

@@ -43,7 +43,7 @@ func (c *Client) QueryForCards(scryfallQuery string) ([]Card, error) {
 	return allCards, nil
 }
 
-// QueryForCard searches the Scryfall API for a specific card by exact name
+// QueryForSpecificCard searches the Scryfall API for a specific card by exact name
 // This function uses the /cards/named endpoint to find cards by exact name match
 // Returns a single Card or an error if not found or request fails
 func (c *Client) QueryForSpecificCard(cardName string) (*Card, error) {
