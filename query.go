@@ -176,17 +176,21 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 // fetchAllPrintingsForCard uses the card's PrintsSearchURI to fetch ALL printings
 func (sb *Scryball) fetchAllPrintingsForCard(ctx context.Context, card *client.Card) error {
 	if card.OracleID == nil {
-		return fmt.Errorf("card %s has no oracle_id", card.Name)
+		return nil
 	}
 
-	// Use oracle_id to fetch ALL printings
+	existingCard, err := sb.FetchCardByExactOracleID(ctx, *card.OracleID)
+	if err == nil && existingCard != nil && len(existingCard.Printings) > 0 {
+		return nil
+	}
+
 	query := fmt.Sprintf("oracleid:%s unique:prints", *card.OracleID)
+
 	allPrintings, err := sb.client.QueryForCards(query)
 	if err != nil {
 		return fmt.Errorf("failed to fetch all printings: %w", err)
 	}
 
-	// Store all printings
 	for _, printing := range allPrintings {
 		// Skip printings without oracle_id (e.g. reversible cards)
 		if printing.OracleID == nil {
