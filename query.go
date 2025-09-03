@@ -217,6 +217,35 @@ func (sb *Scryball) findCard(ctx context.Context, cardQuery string) (*MagicCard,
 	return magicCard, err
 }
 
+// findCardOracleID looks for a card within the database by Oracle ID, if not found will fetch from the scryfall API
+func (sb *Scryball) findCardOracleID(ctx context.Context, oracleID string) (*MagicCard, error) {
+	// Try to get card from database first
+	dbCard, err := sb.queries.GetCardByOracleID(ctx, oracleID)
+	if err == nil {
+		// Card found in database, build and return it
+		return sb.buildMagicCardFromDB(ctx, dbCard.OracleID, dbCard.Name, dbCard.Layout, dbCard.Cmc,
+			dbCard.ColorIdentity, dbCard.Colors, dbCard.ManaCost, dbCard.OracleText,
+			dbCard.TypeLine, dbCard.Power, dbCard.Toughness)
+	}
+
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("database error searching for oracle_id %s: %v", oracleID, err)
+	}
+	// card does not exist, fetch from API
+
+	apiCard, err := sb.client.QueryForSpecificCardByOracleID(oracleID)
+	if err != nil {
+		return nil, err
+	}
+
+	magicCard, err := sb.InsertCardFromAPI(ctx, apiCard)
+	if err != nil {
+		return nil, err
+	}
+
+	return magicCard, err
+}
+
 // Query searches for Magic cards using Scryfall query syntax.
 //
 // Behavior:
@@ -381,22 +410,79 @@ func (sb *Scryball) QueryCardWithContext(ctx context.Context, cardQuery string) 
 	return sb.findCard(ctx, cardQuery)
 }
 
-// InsertAPICard stores a Scryfall API card in the database (value receiver version).
+// QueryCardByOracleID fetches a single Magic card by exact Oracle ID match.
 //
 // Behavior:
-//   - Accepts card by value (not pointer)
-//   - Internally converts to pointer and calls InsertCardFromAPI
-//   - Upserts card and printing data
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
+//   - Oracle ID matching is case-insensitive and exact
 //
 // Returns:
-//   - *MagicCard: The stored card with all printings loaded
-//   - error: Conversion errors or database errors
+//   - *MagicCard: The card with exact Oracle ID match
+//   - error: Returns error if card not found, network issues, or database errors
 //
-// Note: Prefer InsertCardFromAPI which takes a pointer. This exists for compatibility.
-func (s *Scryball) InsertAPICard(ctx context.Context, apiCard client.Card) (*MagicCard, error) {
-	magicCard, err := s.InsertCardFromAPI(ctx, &apiCard)
+// Note: Uses global Scryball instance. Initialize with SetConfig() or defaults to in-memory DB.
+func QueryCardByOracleID(oracleID string) (*MagicCard, error) {
+	sb, err := ensureCurrentScryball()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize scryball %v", err)
 	}
-	return magicCard, nil
+
+	ctx := context.Background()
+	return sb.findCardOracleID(ctx, oracleID)
+}
+
+// QueryCardByOracleIDWithContext fetches a single Magic card by exact Oracle ID match with context support.
+//
+// Behavior:
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
+//   - Oracle ID matching is case-insensitive and exact
+//   - Respects context cancellation and timeouts
+//
+// Returns:
+//   - *MagicCard: The card with exact Oracle ID match
+//   - error: Returns error if card not found, context cancelled, or database errors
+//
+// Note: Uses global Scryball instance. Initialize with SetConfig() or defaults to in-memory DB.
+func QueryCardByOracleIDWithContext(ctx context.Context, oracleID string) (*MagicCard, error) {
+	sb, err := ensureCurrentScryball()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize scryball %v", err)
+	}
+	return sb.findCardOracleID(ctx, oracleID)
+}
+
+// QueryCardByOracleID fetches a single Magic card by exact Oracle ID match.
+//
+// Behavior:
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
+//   - Oracle ID matching is case-insensitive and exact
+//
+// Returns:
+//   - *MagicCard: The card with exact Oracle ID match
+//   - error: Returns error if card not found, network issues, or database errors
+func (sb *Scryball) QueryCardByOracleID(oracleID string) (*MagicCard, error) {
+	ctx := context.Background()
+	return sb.findCardOracleID(ctx, oracleID)
+}
+
+// QueryCardByOracleIDWithContext fetches a single Magic card by exact Oracle ID match with context support.
+//
+// Behavior:
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
+//   - Oracle ID matching is case-insensitive and exact
+//   - Respects context cancellation and timeouts
+//
+// Returns:
+//   - *MagicCard: The card with exact Oracle ID match
+//   - error: Returns error if card not found, context cancelled, or database errors
+func (sb *Scryball) QueryCardByOracleIDWithContext(ctx context.Context, oracleID string) (*MagicCard, error) {
+	return sb.findCardOracleID(ctx, oracleID)
 }

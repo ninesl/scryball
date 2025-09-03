@@ -56,3 +56,24 @@ func (c *Client) QueryForSpecificCard(cardName string) (*Card, error) {
 	}
 	return &card, nil
 }
+
+// QueryForSpecificCardByOracleID searches the Scryfall API for a specific card by Oracle ID
+// This function uses the /cards/search endpoint with an oracle ID query
+// Returns a single Card (the first result) or an error if not found or request fails
+func (c *Client) QueryForSpecificCardByOracleID(oracleID string) (*Card, error) {
+	var list List
+	// Use the /cards/search endpoint with Oracle ID search query
+	query := "oracleid:" + oracleID
+	endpoint := "/cards/search?q=" + url.QueryEscape(query)
+	err := c.makeRequest(endpoint, &list)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find card with oracle_id '%s': %w", oracleID, err)
+	}
+
+	if len(list.Data) == 0 {
+		return nil, fmt.Errorf("no card found with oracle_id '%s'", oracleID)
+	}
+
+	// Return the first card found (all should have the same oracle_id anyway)
+	return &list.Data[0], nil
+}
