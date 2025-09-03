@@ -67,6 +67,7 @@ Fetches a single Magic card by exact name match.
 **Behavior:**
 - Cache hits return complete card data with zero API calls
 - Cache misses make single API call that fetches all printings
+- Consider using `QueryCardByOracleID()` if you have the Oracle ID
 
 **Example:**
 ```go
@@ -81,6 +82,59 @@ if err != nil {
 #### `QueryCardWithContext(ctx context.Context, cardQuery string) (*MagicCard, error)`
 
 Same as `QueryCard()` but supports context cancellation and timeouts.
+
+---
+
+#### `QueryCardByOracleID(oracleID string) (*MagicCard, error)`
+
+Fetches a single Magic card by Oracle ID.
+
+**Parameters:**
+- `oracleID`: Oracle ID string (e.g. "4457ed35-7c10-48c8-9776-456485fdf070")
+
+**Returns:**
+- `*MagicCard`: The matching card with all printings populated
+- `error`: Error if card not found or other issues
+
+**Behavior:**
+- Cache hits return complete card data without API calls
+- Cache misses make single API call that fetches all printings
+- Oracle ID matching is case-insensitive and exact
+- Uses Scryfall's `/cards/search?q=oracleid:` endpoint internally
+- All card data cached for future requests
+
+**Example:**
+```go
+// Direct Oracle ID lookup
+card, err := scryball.QueryCardByOracleID("4457ed35-7c10-48c8-9776-456485fdf070")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Found: %s\n", card.Name) // "Lightning Bolt"
+
+// Common workflow: name → Oracle ID → cached future lookups
+card, _ := scryball.QueryCard("Lightning Bolt")
+oracleID := *card.OracleID  // Store this for later
+// Later... cached lookup avoids API call
+sameCard, _ := scryball.QueryCardByOracleID(oracleID)
+```
+
+---
+
+#### `QueryCardByOracleIDWithContext(ctx context.Context, oracleID string) (*MagicCard, error)`
+
+Same as `QueryCardByOracleID()` but supports context cancellation and timeouts.
+
+**Parameters:**
+- `ctx`: Context for cancellation/timeout
+- `oracleID`: Oracle ID string (e.g. "4457ed35-7c10-48c8-9776-456485fdf070")
+
+**Example:**
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+card, err := scryball.QueryCardByOracleIDWithContext(ctx, "4457ed35-7c10-48c8-9776-456485fdf070")
+```
 
 ---
 
@@ -210,6 +264,8 @@ type ScryballConfig struct {
 
 Represents a Magic: The Gathering card with all its printings.
 
+Based on: [https://scryfall.com/docs/api/cards](https://scryfall.com/docs/api/cards)
+
 ```go
 type MagicCard struct {
     *client.Card      // Embedded Scryfall card data
@@ -230,6 +286,11 @@ fmt.Println(*card.OracleID)      // Unique identifier across printings
 for _, printing := range card.Printings {
     fmt.Printf("%s (%s)\n", printing.SetName, printing.SetCode)
 }
+
+// Oracle ID workflow - store Oracle ID for cached subsequent lookups
+oracleID := *card.OracleID
+// Later... cached lookup avoids API call
+sameCard, _ := scryball.QueryCardByOracleID(oracleID)
 ```
 
 **Key Fields from client.Card:**
@@ -299,6 +360,14 @@ Instance version of package-level `QueryCard()`.
 #### `(s *Scryball) QueryCardWithContext(ctx context.Context, cardQuery string) (*MagicCard, error)`
 
 Instance version of package-level `QueryCardWithContext()`.
+
+#### `(s *Scryball) QueryCardByOracleID(oracleID string) (*MagicCard, error)`
+
+Instance version of package-level `QueryCardByOracleID()`.
+
+#### `(s *Scryball) QueryCardByOracleIDWithContext(ctx context.Context, oracleID string) (*MagicCard, error)`
+
+Instance version of package-level `QueryCardByOracleIDWithContext()`.
 
 ---
 
@@ -516,6 +585,10 @@ Scryball supports the complete [Scryfall search syntax](https://scryfall.com/doc
 - `o:"draw a card"` - Exact phrase in oracle text
 - `name:bolt` - Name contains "bolt"
 
+### Oracle ID Searches
+- `oracleid:4457ed35-7c10-48c8-9776-456485fdf070` - Exact Oracle ID match
+- `QueryCardByOracleID()` - Direct Oracle ID lookup (recommended for known IDs)
+
 ### Complex Queries
 - `t:creature c:red cmc<=3 pow>=2` - Red creatures, ≤3 mana, ≥2 power
 - `legal:commander rarity:mythic` - Mythic rares legal in Commander
@@ -528,6 +601,7 @@ Scryball supports the complete [Scryfall search syntax](https://scryfall.com/doc
 3. **Handle `sql.ErrNoRows`** specifically for cache-only methods
 4. **Validate decklists** before processing
 5. **Use descriptive User-Agent** strings for API calls
+6. **Prefer Oracle ID lookups** when available - cached lookups avoid API calls
 
 ---
 
