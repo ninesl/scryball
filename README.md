@@ -145,14 +145,14 @@ card, err := scryball.QueryCardWithContext(ctx, "Black Lotus")
 ## Thread Safe
 
 ```go
-// Safe to call from multiple goroutines
+// Safe to call from multiple goroutines. Be careful of rate-limiting!
 var wg sync.WaitGroup
 for _, color := range []string{"red", "blue", "green"} {
 	wg.Add(1)
 	fmt.Println("looking for " + color)
 	go func(c string) {
 		defer wg.Done()
-		cards, _ := scryball.Query("set:neo c:" + c)
+		cards, _ := scryball.Query("set:neo r:rare c:" + c)
 		fmt.Printf("%s: %d cards\n", c, len(cards))
 	}(color)
 }

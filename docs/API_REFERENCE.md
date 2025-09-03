@@ -4,7 +4,7 @@ Complete reference for all public functions, types, and methods in the Scryball 
 
 ## Package Functions
 
-These functions operate on a global Scryball instance that's automatically initialized.
+These functions operate on a global Scryball instance that's automatically initialized (or whatever's configured with `scryball.SetConfig()`).
 
 ### Query Functions
 
@@ -557,3 +557,5 @@ for _, query := range queries {
 }
 wg.Wait()
 ```
+
+#### Note: Would not recommend to abuse this as Scryfall WILL rate limit you. Requests come from the scryball's `Client`
