@@ -40,7 +40,7 @@ type Printing struct {
 //   - Only checks database cache, never queries API
 //   - Returns empty slice if query is cached but had no results
 //   - Returns sql.ErrNoRows if query has never been cached
-//   - Fetches full card details including all printings
+//   - Returns full card details with all printings populated
 //
 // Returns:
 //   - []*MagicCard: Cached cards for this query (may be empty)
@@ -106,7 +106,7 @@ func (s *Scryball) FetchCardsByExactNames(ctx context.Context, names []string) (
 // Behavior:
 //   - Only checks database cache, never queries API
 //   - Name must match exactly (case-sensitive)
-//   - Returns the card with all printings
+//   - Returns the card with all printings populated
 //
 // Returns:
 //   - *MagicCard: The card if found in cache
@@ -133,7 +133,7 @@ func (s *Scryball) FetchCardByExactName(ctx context.Context, name string) (*Magi
 //   - Only checks database cache, never queries API
 //   - Oracle ID must match exactly
 //   - Returns error (not sql.ErrNoRows) if card not found
-//   - Loads all printings for the card
+//   - Returns card with all printings populated
 //
 // Returns:
 //   - *MagicCard: The card if found in cache

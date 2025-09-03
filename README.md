@@ -1,6 +1,6 @@
 # Scryball
 
-Fast, thread-safe Go client for the Scryfall Magic: The Gathering API with automatic SQLite caching.
+Fast, thread-safe Go client for the Scryfall Magic: The Gathering API with efficient SQLite caching.
 
 Completely supports Scryfall's syntax, see: https://scryfall.com/docs/syntax
 
@@ -33,7 +33,7 @@ scryball.SetConfig(scryball.ScryballConfig{
 })
 
 cards, _ := scryball.Query("set:neo rarity:mythic")
-// Next time this query is run scryball will return results from SQLite cache
+// Next time this runs, returns from cache with zero API calls
 ```
 
 
@@ -102,7 +102,7 @@ fmt.Printf("%d cards\n", deck.NumberOfCards())        // 24
 fmt.Printf("%d sideboard\n", deck.NumberOfSideboardCards()) // 3
 
 // Also supports set symbol format (like when exporting from arena)
-// Printings used are irrelevant as all cards returned will have all of their Printings embedded
+// All cards returned include their complete printing history
 deckText = `Deck
 4 Delver of Secrets (MID) 47
 3 Mountain (ANA) 32

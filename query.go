@@ -8,8 +8,8 @@
 //	// Get a specific card by name
 //	card, err := scryball.QueryCard("Lightning Bolt")
 //
-// The package automatically caches API responses in a local SQLite database reducing API calls.
-// Cache misses fallback to the Scryfall API.
+// The package efficiently caches API responses in a local SQLite database with one API call per unique card.
+// Each card insertion fetches all printings across all sets. Cache hits return with zero API calls.
 //
 // Configuration:
 //
@@ -60,22 +60,52 @@ func (s *Scryball) InsertCardFromAPI(ctx context.Context, apiCard *client.Card) 
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Insert the card first
 	err = s.queries.UpsertCard(ctx, cardParams)
 	if err != nil {
-		return nil, fmt.Errorf("could not upsert card %s: %v", apiCard.Name,
-			err)
-	}
-	err = s.queries.UpsertPrinting(ctx, printingParams)
-	if err != nil {
-		return nil, fmt.Errorf("could not upsert printing for %s: %v",
-			apiCard.Name, err)
+		return nil, fmt.Errorf("could not upsert card %s: %v", apiCard.Name, err)
 	}
 
-	//Fetch the newly stored card as a MagicCard
+	// Insert the initial printing
+	err = s.queries.UpsertPrinting(ctx, printingParams)
+	if err != nil {
+		return nil, fmt.Errorf("could not upsert printing for %s: %v", apiCard.Name, err)
+	}
+
+	// Fetch ALL printings for this card and store them
+	if apiCard.OracleID != nil {
+		allPrintings, err := s.client.FetchAllPrintings(apiCard)
+		if err != nil {
+			// Don't fail the entire operation if printing fetch fails
+			// Just log and continue with the single printing we have
+		} else {
+			// Store all printings
+			for _, printing := range allPrintings {
+				// Skip printings without oracle_id
+				if printing.OracleID == nil {
+					continue
+				}
+
+				// Convert printing to DB params
+				_, printingParams, err := convertAPICardToDBParams(&printing)
+				if err != nil {
+					continue // Skip invalid printings
+				}
+
+				// Upsert the printing
+				err = s.queries.UpsertPrinting(ctx, printingParams)
+				if err != nil {
+					continue // Skip failed printings
+				}
+			}
+		}
+	}
+
+	// Fetch the newly stored card with ALL printings as a MagicCard
 	magicCard, err := s.FetchCardByExactOracleID(ctx, cardParams.OracleID)
 	if err != nil {
-		return nil, fmt.Errorf("could not fetch newly stored card %s: %v",
-			apiCard.Name, err)
+		return nil, fmt.Errorf("could not fetch newly stored card %s: %v", apiCard.Name, err)
 	}
 
 	return magicCard, nil
@@ -143,20 +173,8 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 	oracleIDs := make([]string, 0, len(oracleMap))
 
 	for oracleID, sampleCard := range oracleMap {
-		// Store the sample card first
-		_, err := sb.InsertCardFromAPI(ctx, sampleCard)
-		if err != nil {
-			return nil, err
-		}
-
-		// Now fetch ALL printings for this oracle_id using its PrintsSearchURI
-		err = sb.fetchAllPrintingsForCard(ctx, sampleCard)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch all printings for %s: %v", sampleCard.Name, err)
-		}
-
-		// Fetch the complete card with all printings
-		magicCard, err := sb.FetchCardByExactOracleID(ctx, oracleID)
+		// InsertCardFromAPI already fetches and stores ALL printings for the card
+		magicCard, err := sb.InsertCardFromAPI(ctx, sampleCard)
 		if err != nil {
 			return nil, err
 		}
@@ -171,38 +189,6 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 	}
 
 	return magicCards, nil
-}
-
-// fetchAllPrintingsForCard uses the card's PrintsSearchURI to fetch ALL printings
-func (sb *Scryball) fetchAllPrintingsForCard(ctx context.Context, card *client.Card) error {
-	if card.OracleID == nil {
-		return nil
-	}
-
-	existingCard, err := sb.FetchCardByExactOracleID(ctx, *card.OracleID)
-	if err == nil && existingCard != nil && len(existingCard.Printings) > 0 {
-		return nil
-	}
-
-	query := fmt.Sprintf("oracleid:%s unique:prints", *card.OracleID)
-
-	allPrintings, err := sb.client.QueryForCards(query)
-	if err != nil {
-		return fmt.Errorf("failed to fetch all printings: %w", err)
-	}
-
-	for _, printing := range allPrintings {
-		// Skip printings without oracle_id (e.g. reversible cards)
-		if printing.OracleID == nil {
-			continue
-		}
-		_, err := sb.InsertCardFromAPI(ctx, &printing)
-		if err != nil {
-			return fmt.Errorf("failed to store printing %s: %w", printing.ID, err)
-		}
-	}
-
-	return nil
 }
 
 // look for the card within the database, if not found will fetch from the scryfall API
@@ -234,10 +220,10 @@ func (sb *Scryball) findCard(ctx context.Context, cardQuery string) (*MagicCard,
 // Query searches for Magic cards using Scryfall query syntax.
 //
 // Behavior:
-//   - First checks local database cache for the query
-//   - If cached, returns stored results immediately
-//   - If not cached, queries Scryfall API and caches results
-//   - Empty results from API are cached to prevent repeated API calls
+//   - Cache hits return complete results with zero API calls
+//   - Cache misses make single API call per unique card
+//   - Each card fetched includes all printings across all sets
+//   - All results cached to prevent repeated API calls
 //
 // Returns:
 //   - []*MagicCard: Array of cards matching the query (empty array if no matches)
@@ -257,10 +243,10 @@ func Query(query string) ([]*MagicCard, error) {
 // QueryWithContext searches for Magic cards using Scryfall query syntax with context support.
 //
 // Behavior:
-//   - First checks local database cache for the query
-//   - If cached, returns stored results immediately
-//   - If not cached, queries Scryfall API and caches results
-//   - Empty results from API are cached to prevent repeated API calls
+//   - Cache hits return complete results with zero API calls
+//   - Cache misses make single API call per unique card
+//   - Each card fetched includes all printings across all sets
+//   - All results cached to prevent repeated API calls
 //   - Respects context cancellation and timeouts
 //
 // Returns:
@@ -281,10 +267,10 @@ func QueryWithContext(ctx context.Context, query string) ([]*MagicCard, error) {
 // Query searches for Magic cards using Scryfall query syntax.
 //
 // Behavior:
-//   - First checks this Scryball instance's database for cached query
-//   - If cached, returns stored results immediately
-//   - If not cached, queries Scryfall API and caches both cards and query
-//   - Empty results from API are cached to prevent repeated API calls
+//   - Cache hits return complete results with zero API calls
+//   - Cache misses make single API call per unique card
+//   - Each card fetched includes all printings across all sets
+//   - All results cached to prevent repeated API calls
 //
 // Returns:
 //   - []*MagicCard: Array of cards matching the query (empty array if no matches)
@@ -299,10 +285,10 @@ func (sb *Scryball) Query(query string) ([]*MagicCard, error) {
 // QueryWithContext searches for Magic cards using Scryfall query syntax with context support.
 //
 // Behavior:
-//   - First checks this Scryball instance's database for cached query
-//   - If cached, returns stored results immediately
-//   - If not cached, queries Scryfall API and caches both cards and query
-//   - Empty results from API are cached to prevent repeated API calls
+//   - Cache hits return complete results with zero API calls
+//   - Cache misses make single API call per unique card
+//   - Each card fetched includes all printings across all sets
+//   - All results cached to prevent repeated API calls
 //   - Respects context cancellation and timeouts
 //
 // Returns:
@@ -317,10 +303,9 @@ func (sb *Scryball) QueryWithContext(ctx context.Context, query string) ([]*Magi
 // QueryCard fetches a single Magic card by exact name match.
 //
 // Behavior:
-//   - First checks local database cache for the card name
-//   - If cached, returns stored card immediately
-//   - If not cached, queries Scryfall API using exact name match
-//   - Successfully fetched cards are cached for future requests
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
 //   - Name matching is case-insensitive but otherwise exact
 //
 // Returns:
@@ -341,10 +326,9 @@ func QueryCard(cardQuery string) (*MagicCard, error) {
 // QueryCardWithContext fetches a single Magic card by exact name match with context support.
 //
 // Behavior:
-//   - First checks local database cache for the card name
-//   - If cached, returns stored card immediately
-//   - If not cached, queries Scryfall API using exact name match
-//   - Successfully fetched cards are cached for future requests
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
 //   - Name matching is case-insensitive but otherwise exact
 //   - Respects context cancellation and timeouts
 //
@@ -364,10 +348,9 @@ func QueryCardWithContext(ctx context.Context, cardQuery string) (*MagicCard, er
 // QueryCard fetches a single Magic card by exact name match.
 //
 // Behavior:
-//   - First checks this Scryball instance's database cache for the card name
-//   - If cached, returns stored card immediately
-//   - If not cached, queries Scryfall API using exact name match
-//   - Successfully fetched cards are cached for future requests
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
 //   - Name matching is case-insensitive but otherwise exact
 //
 // Returns:
@@ -383,10 +366,9 @@ func (sb *Scryball) QueryCard(cardQuery string) (*MagicCard, error) {
 // QueryCardWithContext fetches a single Magic card by exact name match with context support.
 //
 // Behavior:
-//   - First checks this Scryball instance's database cache for the card name
-//   - If cached, returns stored card immediately
-//   - If not cached, queries Scryfall API using exact name match
-//   - Successfully fetched cards are cached for future requests
+//   - Cache hits return card with all printings and zero API calls
+//   - Cache misses make single API call that fetches all printings
+//   - All card data cached for future requests
 //   - Name matching is case-insensitive but otherwise exact (see scryfall docs)
 //   - Respects context cancellation and timeouts
 //

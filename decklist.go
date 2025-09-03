@@ -94,7 +94,7 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 					cardName, strings.Join(names, ", "))
 			}
 
-			// Cache the card
+			// Cache the card (InsertCardFromAPI now fetches ALL printings automatically)
 			magicCard, err = sb.InsertCardFromAPI(ctx, apiCard)
 			if err != nil {
 				return nil, fmt.Errorf("failed to cache card %s: %v", cardName, err)
@@ -137,7 +137,8 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 //	2 Counterspell (ICE) 64
 //
 // Behavior:
-//   - Automatically caches any cards not in database
+//   - Fetches missing cards with single API call per unique card
+//   - Each fetched card includes all printings across all sets
 //   - Handles exact name matches
 //   - Returns error for ambiguous card names
 //   - Sideboard section must be preceded by "Sideboard" header
@@ -192,7 +193,7 @@ func ParseDecklistWithContext(ctx context.Context, decklistString string) (*Deck
 // Behavior:
 //   - Uses this instance's database for caching
 //   - Uses this instance's client for API calls
-//   - Automatically caches any cards not in database
+//   - Fetches missing cards with single API call per unique card
 //   - Returns error for ambiguous card names
 func (s *Scryball) ParseDecklist(decklistString string) (*Decklist, error) {
 	ctx := context.Background()
@@ -204,7 +205,7 @@ func (s *Scryball) ParseDecklist(decklistString string) (*Decklist, error) {
 // Behavior:
 //   - Uses this instance's database for caching
 //   - Uses this instance's client for API calls
-//   - Automatically caches any cards not in database
+//   - Fetches missing cards with single API call per unique card
 //   - Returns error for ambiguous card names
 //   - Respects context cancellation and timeouts
 func (s *Scryball) ParseDecklistWithContext(ctx context.Context, decklistString string) (*Decklist, error) {

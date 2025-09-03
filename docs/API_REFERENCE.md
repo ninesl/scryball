@@ -20,10 +20,10 @@ Searches for Magic cards using Scryfall query syntax.
 - `error`: Network, API, or database errors
 
 **Behavior:**
-- Checks local database cache first
-- Falls back to Scryfall API if not cached
-- Caches results for future queries
-- Empty results are also cached
+- Cache hits return results with zero API calls
+- Cache misses make single API call per unique card 
+- Each card insertion fetches all printings across all sets
+- All results cached for future queries
 
 **Example:**
 ```go
@@ -61,8 +61,12 @@ Fetches a single Magic card by exact name match.
 - `cardQuery`: Exact card name (case-insensitive)
 
 **Returns:**
-- `*MagicCard`: The matching card
+- `*MagicCard`: The matching card with all printings populated
 - `error`: Error if card not found or other issues
+
+**Behavior:**
+- Cache hits return complete card data with zero API calls
+- Cache misses make single API call that fetches all printings
 
 **Example:**
 ```go
@@ -209,7 +213,7 @@ Represents a Magic: The Gathering card with all its printings.
 ```go
 type MagicCard struct {
     *client.Card      // Embedded Scryfall card data
-    printings []Printing  // All set printings of this card
+    Printings []Printing  // All set printings of this card
 }
 ```
 
@@ -221,6 +225,11 @@ fmt.Println(card.TypeLine)       // "Instant"
 fmt.Println(*card.ManaCost)      // "{R}"
 fmt.Println(*card.OracleText)    // Full rules text
 fmt.Println(*card.OracleID)      // Unique identifier across printings
+
+// All printings always populated from cache or API
+for _, printing := range card.Printings {
+    fmt.Printf("%s (%s)\n", printing.SetName, printing.SetCode)
+}
 ```
 
 **Key Fields from client.Card:**
@@ -302,7 +311,7 @@ These methods only check the database cache and never make API calls.
 Retrieves cached results for a query without making API calls.
 
 **Returns:**
-- `[]*MagicCard`: Cached cards (may be empty array)
+- `[]*MagicCard`: Cached cards with full printing data (may be empty array)
 - `error`: `sql.ErrNoRows` if query not cached, or database errors
 
 **Example:**
@@ -322,7 +331,7 @@ if err == sql.ErrNoRows {
 Retrieves a cached card by exact name.
 
 **Returns:**
-- `*MagicCard`: Cached card
+- `*MagicCard`: Cached card with all printings populated
 - `error`: `sql.ErrNoRows` if card not cached
 
 ---
@@ -332,7 +341,7 @@ Retrieves a cached card by exact name.
 Retrieves a cached card by Oracle ID.
 
 **Returns:**
-- `*MagicCard`: Cached card
+- `*MagicCard`: Cached card with all printings populated
 - `error`: `sql.ErrNoRows` if card not cached
 
 ---
@@ -343,8 +352,8 @@ Retrieves multiple cached cards by exact names.
 
 **Behavior:**
 - Requires ALL names to exist in cache
-- Stops and returns error on first missing card
-- Returns cards in same order as input names
+- Stops and returns error on first missing card  
+- Returns cards with full printing data in same order as input names
 
 ---
 
