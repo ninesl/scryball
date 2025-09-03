@@ -152,16 +152,40 @@ func (c *Client) SearchCardsByName(name string) (*List, error) {
 	return &list, err
 }
 
-func (c *Client) getCardPrintings(printsSearchURI string) (*List, error) {
-	var list List
-	// Extract the path from the full URI
-	parsedURL, err := url.Parse(printsSearchURI)
-	if err != nil {
-		return nil, err
+// FetchAllPrintings retrieves all printings for a given card using its PrintsSearchURI.
+// This function handles pagination to retrieve ALL printings across all pages.
+// Returns an array of Cards (each representing a printing) or an error if the request fails.
+func (c *Client) FetchAllPrintings(card *Card) ([]Card, error) {
+	var allPrintings []Card
+
+	if card.PrintsSearchURI.String() == "" {
+		return nil, fmt.Errorf("card has no prints_search_uri: %s", card.Name)
 	}
-	endpoint := parsedURL.Path + "?" + parsedURL.RawQuery
-	err = c.makeRequest(endpoint, &list)
-	return &list, err
+
+	// Get first page of printings
+	var list List
+	// Use the full URL from PrintsSearchURI directly
+	err := c.makeRequest(card.PrintsSearchURI.RequestURI(), &list)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch printings for card '%s' from URI '%s': %w", card.Name, card.PrintsSearchURI.String(), err)
+	}
+
+	// Add first page results
+	allPrintings = append(allPrintings, list.Data...)
+
+	// Follow pagination to get all pages
+	for list.HasMore && list.NextPage != nil {
+		// Use the full URL from NextPage directly
+		err = c.makeRequest(list.NextPage.RequestURI(), &list)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch next page of printings for card '%s': %w", card.Name, err)
+		}
+
+		// Add this page's results
+		allPrintings = append(allPrintings, list.Data...)
+	}
+
+	return allPrintings, nil
 }
 
 // Helper functions
@@ -324,14 +348,14 @@ func (c *Client) queryAndInsertCards(db *sql.DB) error {
 	for _, card := range results.Data {
 		fmt.Printf("Fetching printings for %s...\n", card.Name)
 
-		printings, err := c.getCardPrintings(card.PrintsSearchURI.String())
+		printings, err := c.FetchAllPrintings(&card)
 		if err != nil {
 			log.Printf("Error fetching printings for %s: %v", card.Name, err)
 			continue
 		}
 
 		// Filter out cards that have common/uncommon Arena printings
-		if !shouldIncludeCard(printings.Data) {
+		if !shouldIncludeCard(printings) {
 			fmt.Printf("Skipping %s - has common/uncommon Arena printing\n", card.Name)
 			continue
 		}
@@ -380,7 +404,7 @@ func (c *Client) queryAndInsertCards(db *sql.DB) error {
 		}
 
 		// Then insert ALL printings of this card
-		for _, printing := range printings.Data {
+		for _, printing := range printings {
 			err = queries.UpsertPrinting(ctx, scryfall.UpsertPrintingParams{
 				ID:                printing.ID,
 				OracleID:          *printing.OracleID,
@@ -1462,14 +1486,14 @@ func (c *Client) AddEOSCards() error {
 		}
 
 		// Get all printings for this card
-		printings, err := c.getCardPrintings(card.PrintsSearchURI.String())
+		printings, err := c.FetchAllPrintings(&card)
 		if err != nil {
 			fmt.Printf("Error fetching printings for %s: %v\n", card.Name, err)
 			continue
 		}
 
 		// Add all printings, but hardcode arena for EOS printings
-		for _, printing := range printings.Data {
+		for _, printing := range printings {
 			var gamesString string
 			if printing.Set == "eos" {
 				// Hardcode arena into the games array for EOS printings

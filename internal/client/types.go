@@ -587,7 +587,7 @@ type CardPreview struct {
 	Source *string `json:"source"`
 }
 
-// UnmarshalJSON implements custom unmarshalling for List to handle URL fields
+// UnmarshalJSON implements custom unmarshalling for List to handle URL fields. Used internally
 func (l *List) UnmarshalJSON(data []byte) error {
 	type Alias List
 	aux := &struct {
