@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -63,15 +62,31 @@ func main() {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Test new Oracle ID functionality with Black Lotus
+	fmt.Println("\n=== Testing QueryCardByOracleID() ===")
+	blackLotusOracleID := "5089ec1a-f881-4d55-af14-5d996171203b"
 
-	card, _ = scryball.QueryCardWithContext(ctx, "Black Lotus")
-	fmt.Println(card.Name)
-	fmt.Println(card.TypeLine)
-	fmt.Println(*card.ManaCost)
-	fmt.Println(*card.OracleText)
-	fmt.Println(*card.OracleID)
+	card, err = scryball.QueryCardByOracleID(blackLotusOracleID)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Found card by Oracle ID: %s\n", card.Name)
+	fmt.Printf("Oracle ID: %s\n", *card.OracleID)
+	fmt.Printf("Type: %s\n", card.TypeLine)
+	if card.ManaCost != nil {
+		fmt.Printf("Mana Cost: %s\n", *card.ManaCost)
+	}
+	if card.OracleText != nil {
+		fmt.Printf("Oracle Text: %s\n", *card.OracleText)
+	}
+	fmt.Printf("Number of printings: %d\n", len(card.Printings))
+
+	// Test caching - second call should be much faster
+	start := time.Now()
+	cardByOracle2, _ := scryball.QueryCardByOracleID(blackLotusOracleID)
+	duration := time.Since(start)
+	fmt.Printf("Second call (cached) took: %v - got %s\n", duration, cardByOracle2.Name)
 
 	deckText := `
 4 Lightning Bolt
