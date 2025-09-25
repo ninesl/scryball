@@ -13,9 +13,11 @@ func TestParseArenaDecklist(t *testing.T) {
 	decklistString := `
 4 Lightning Bolt
 20 Mountain
+1 Mountain
 
 Sideboard
 3 Pyroblast
+1 Pyroblast
 `
 
 	deck, err := ParseDecklist(decklistString)
@@ -24,13 +26,13 @@ Sideboard
 	}
 
 	// Check maindeck
-	if deck.NumberOfCards() != 24 {
-		t.Errorf("Expected 24 maindeck cards, got %d", deck.NumberOfCards())
+	if deck.NumberOfCards() != 25 {
+		t.Errorf("Expected 25 maindeck cards, got %d", deck.NumberOfCards())
 	}
 
 	// Check sideboard
-	if deck.NumberOfSideboardCards() != 3 {
-		t.Errorf("Expected 3 sideboard cards, got %d", deck.NumberOfSideboardCards())
+	if deck.NumberOfSideboardCards() != 4 {
+		t.Errorf("Expected 4 sideboard cards, got %d", deck.NumberOfSideboardCards())
 	}
 
 	// Check specific cards
@@ -45,8 +47,8 @@ Sideboard
 		}
 		if card.Name == "Mountain" {
 			foundMountain = true
-			if qty != 20 {
-				t.Errorf("Expected 20 Mountain, got %d", qty)
+			if qty != 21 {
+				t.Errorf("Expected 21 Mountain, got %d", qty)
 			}
 		}
 	}
@@ -442,7 +444,7 @@ Sideboard
 // TestParseDecklistWithContext_Instance tests the instance ParseDecklistWithContext method
 func TestParseDecklistWithContext_Instance(t *testing.T) {
 	ctx := context.Background()
-	
+
 	sb, err := NewWithConfig(ScryballConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create Scryball instance: %v", err)

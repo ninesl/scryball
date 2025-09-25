@@ -28,7 +28,7 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 	var inSideboard bool
 	var sideboardTotal int
 
-	for _, line := range lines {
+	for i, line := range lines {
 		line = strings.TrimSpace(line)
 
 		// Skip empty lines
@@ -38,10 +38,17 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 
 		// Check for section headers
 		if strings.EqualFold(line, "Deck") {
+			if inSideboard {
+				return nil, fmt.Errorf("already submitting sideboard, found on line %d", i)
+			}
 			inSideboard = false
 			continue
 		}
+
 		if strings.EqualFold(line, "Sideboard") {
+			if inSideboard {
+				return nil, fmt.Errorf("cannot have sideboard twice, found on line %d", i)
+			}
 			inSideboard = true
 			continue
 		}
@@ -110,13 +117,33 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 			if sideboardTotal > 15 {
 				return nil, fmt.Errorf("sideboard exceeds 15 cards (has %d)", sideboardTotal)
 			}
-			decklist.Sideboard[magicCard] = quantity
+
+			if key, exists := doesCardExistInMap(magicCard, decklist.Sideboard); exists {
+				decklist.Sideboard[key] += quantity
+			} else {
+				decklist.Sideboard[key] = quantity
+			}
 		} else {
-			decklist.Maindeck[magicCard] = quantity
+			if key, exists := doesCardExistInMap(magicCard, decklist.Maindeck); exists {
+				decklist.Maindeck[key] += quantity
+			} else {
+				decklist.Maindeck[key] = quantity
+			}
 		}
+
 	}
 
 	return decklist, nil
+}
+
+// if it does, it returns the key pointer
+func doesCardExistInMap(magicCard *MagicCard, list map[*MagicCard]int) (*MagicCard, bool) {
+	for card := range list {
+		if strings.Compare(*magicCard.OracleID, *card.OracleID) == 0 {
+			return card, true
+		}
+	}
+	return magicCard, false
 }
 
 // ParseDecklist parses an pasted string decklist and returns a Decklist.
