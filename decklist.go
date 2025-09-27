@@ -17,6 +17,22 @@ type Decklist struct {
 	Sideboard map[*MagicCard]int // Card to quantity mapping (max 15 cards total)
 }
 
+// // Returns the decklist in text format, able to be exported to Arena or similar platform.
+// func (decklist *Decklist) String() string {
+// 	var sb strings.Builder
+// 	sb.WriteString("Deck\n")
+
+// 	for card, quantity := range decklist.Maindeck {
+// 		sb.WriteString(fmt.Sprintf("%d %s", quantity, card.Name))
+// 	}
+// 	sb.WriteString("\nSideboard\n")
+// 	for card, quantity := range decklist.Sideboard {
+// 		sb.WriteString(fmt.Sprintf("%d %s", quantity, card.Name))
+// 	}
+
+// 	return sb.String()
+// }
+
 // shared parsing implementation
 func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*Decklist, error) {
 	decklist := &Decklist{
@@ -25,23 +41,46 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 	}
 
 	lines := strings.Split(decklistString, "\n")
+	var inDeck bool // must start with "Deck"
 	var inSideboard bool
 	var sideboardTotal int
 
+	var hasAbout = false
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
-
-		// Skip empty lines
-		if line == "" {
-			continue
+		if i == 0 {
+			if strings.EqualFold(line, "About") {
+				hasAbout = true
+				continue
+			}
+		} else if i == 1 {
+			if hasAbout {
+				parts := strings.Split(line, " ")
+				if strings.EqualFold(parts[0], "Name") {
+					continue
+				} else {
+					return nil, fmt.Errorf("must have deck name even if unused with 'About'")
+				}
+			}
 		}
 
-		// Check for section headers
+		if !inDeck {
+			if line == "" {
+				continue
+			}
+		}
+
 		if strings.EqualFold(line, "Deck") {
+			if inDeck {
+				return nil, fmt.Errorf("already parsing Deck, did you input a deck twice?")
+			} else {
+				inDeck = true
+			}
+
 			if inSideboard {
 				return nil, fmt.Errorf("already submitting sideboard, found on line %d", i)
 			}
-			inSideboard = false
+
 			continue
 		}
 
@@ -53,13 +92,11 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 			continue
 		}
 
-		// Parse card line
 		quantity, cardName, err := parseCardLine(line)
 		if err != nil {
-			continue // Skip malformed lines
+			return nil, err
 		}
 
-		// Get the card using instance methods
 		var magicCard *MagicCard
 
 		// First check cache
@@ -254,7 +291,7 @@ func parseCardLine(line string) (int, string, error) {
 
 		parts := strings.SplitN(beforeParen, " ", 2)
 		if len(parts) < 2 {
-			return 0, "", fmt.Errorf("invalid line format: %s", line)
+			return 0, "", fmt.Errorf("invalid format: %s", line)
 		}
 
 		q, err := strconv.Atoi(parts[0])
@@ -268,7 +305,7 @@ func parseCardLine(line string) (int, string, error) {
 		// Format without set code: "4 Lightning Bolt"
 		parts := strings.SplitN(line, " ", 2)
 		if len(parts) < 2 {
-			return 0, "", fmt.Errorf("invalid line format: %s", line)
+			return 0, "", fmt.Errorf("invalid format: %s", line)
 		}
 
 		q, err := strconv.Atoi(parts[0])
