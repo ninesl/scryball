@@ -10,7 +10,7 @@ import (
 
 func TestParseArenaDecklist(t *testing.T) {
 	// Simple test decklist
-	decklistString := `
+	decklistString := `Deck
 4 Lightning Bolt
 20 Mountain
 1 Mountain

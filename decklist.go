@@ -64,21 +64,19 @@ func (sb *Scryball) parseDecklist(ctx context.Context, decklistString string) (*
 			}
 		}
 
-		if !inDeck {
-			if line == "" {
-				continue
-			}
+		if line == "" {
+			continue
 		}
 
 		if strings.EqualFold(line, "Deck") {
+			if inSideboard {
+				return nil, fmt.Errorf("already submitting sideboard, found on line %d", i)
+			}
+
 			if inDeck {
 				return nil, fmt.Errorf("already parsing Deck, did you input a deck twice?")
 			} else {
 				inDeck = true
-			}
-
-			if inSideboard {
-				return nil, fmt.Errorf("already submitting sideboard, found on line %d", i)
 			}
 
 			continue
