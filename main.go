@@ -45,6 +45,13 @@ func main() {
 	fmt.Printf("Batches committed:  %d\n", stats.BatchesCommitted)
 	fmt.Printf("Database path:      %s\n", dbPath)
 
+	if len(stats.SkippedDetails) > 0 {
+		fmt.Println("Skipped details:")
+		for _, skipped := range stats.SkippedDetails {
+			fmt.Printf("- %s (%s): %s\n", skipped.Name, skipped.ID, skipped.Reason)
+		}
+	}
+
 	if err := verifyDatabase(sb.RetrieveDB().DB); err != nil {
 		log.Fatalf("database verification failed: %v", err)
 	}

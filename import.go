@@ -20,6 +20,14 @@ type ImportStats struct {
 	ImportedPrintings int64
 	SkippedCards      int64
 	BatchesCommitted  int64
+	SkippedDetails    []SkippedCard
+}
+
+// SkippedCard captures why a card from bulk JSON was skipped.
+type SkippedCard struct {
+	Name   string
+	ID     string
+	Reason string
 }
 
 // ImportCardsJSONFile imports cards from a local JSON array file into this instance.
@@ -112,6 +120,11 @@ func (s *Scryball) importCardsJSONWithBatchSize(ctx context.Context, r io.Reader
 		cardParams, printingParams, err := convertAPICardToDBParams(&apiCard)
 		if err != nil {
 			stats.SkippedCards++
+			stats.SkippedDetails = append(stats.SkippedDetails, SkippedCard{
+				Name:   apiCard.Name,
+				ID:     apiCard.ID,
+				Reason: err.Error(),
+			})
 			continue
 		}
 

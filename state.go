@@ -99,6 +99,25 @@ func convertAPICardToDBParams(card *client.Card) (scryfall.UpsertCardParams, scr
 
 	// Get oracle_id
 	oracleID := derefString(card.OracleID)
+	if oracleID == "" && card.Layout == "reversible_card" {
+		for _, face := range card.CardFaces {
+			faceOracleID := derefString(face.OracleID)
+			if faceOracleID == "" {
+				continue
+			}
+
+			if oracleID == "" {
+				oracleID = faceOracleID
+				continue
+			}
+
+			if oracleID != faceOracleID {
+				return scryfall.UpsertCardParams{}, scryfall.UpsertPrintingParams{},
+					fmt.Errorf("card %s reversible faces have mismatched oracle_id", card.Name)
+			}
+		}
+	}
+
 	if oracleID == "" {
 		return scryfall.UpsertCardParams{}, scryfall.UpsertPrintingParams{},
 			fmt.Errorf("card %s has no oracle_id", card.Name)
