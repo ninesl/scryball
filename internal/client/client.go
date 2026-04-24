@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -94,31 +96,137 @@ func NewClientWithOptions(co ClientOptions) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) makeRequest(endpoint string, result interface{}) error {
-	// Respect Scryfall's rate limit: 50-100ms delay between requests (10 requests per second)
-	time.Sleep(100 * time.Millisecond)
+// Retry configuration for handling rate limits and transient errors
+const (
+	maxRetries     = 5
+	baseDelay      = 500 * time.Millisecond
+	maxDelay       = 60 * time.Second
+	rateLimitDelay = 100 * time.Millisecond // Scryfall recommends 50-100ms between requests
+)
 
+// parseRetryAfter extracts the retry duration from the Retry-After header.
+// It handles both integer seconds and HTTP-date formats.
+func parseRetryAfter(header string) time.Duration {
+	if header == "" {
+		return 0
+	}
+
+	// Try parsing as integer seconds first
+	if seconds, err := strconv.Atoi(header); err == nil {
+		return time.Duration(seconds) * time.Second
+	}
+
+	// Try parsing as HTTP-date (RFC1123)
+	if t, err := http.ParseTime(header); err == nil {
+		return time.Until(t)
+	}
+
+	return 0
+}
+
+// calculateBackoff computes the delay before the next retry attempt using
+// exponential backoff with full jitter.
+func calculateBackoff(attempt int, retryAfter time.Duration) time.Duration {
+	// If Scryfall sent a Retry-After header, use it (with small buffer)
+	if retryAfter > 0 {
+		return retryAfter + time.Duration(rand.Intn(500))*time.Millisecond
+	}
+
+	// Exponential backoff: baseDelay * 2^attempt with full jitter
+	expDelay := baseDelay * time.Duration(1<<uint(attempt))
+
+	// Cap at maxDelay
+	if expDelay > maxDelay {
+		expDelay = maxDelay
+	}
+
+	// Add full jitter: random value between 0 and expDelay
+	if expDelay > 0 {
+		jitter := time.Duration(rand.Int63n(int64(expDelay)))
+		return jitter
+	}
+
+	return expDelay
+}
+
+func sleepWithCountdown(delay time.Duration) {
+	remaining := int(math.Ceil(delay.Seconds()))
+	if remaining <= 0 {
+		time.Sleep(delay)
+		return
+	}
+
+	for remaining > 0 {
+		fmt.Printf("\r%d seconds left", remaining)
+		time.Sleep(time.Second)
+		remaining--
+	}
+
+	fmt.Print("\r0 seconds left\n")
+}
+
+// makeRequest performs an HTTP GET request with automatic retry on 429 (Too Many Requests)
+// and other transient errors. It respects the Retry-After header and uses exponential
+// backoff with jitter between retries.
+func (c *Client) makeRequest(endpoint string, result interface{}) error {
 	fullURL := c.baseURL + endpoint
 
-	req, err := http.NewRequest("GET", fullURL, nil)
-	if err != nil {
-		return err
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Respect Scryfall's rate limit: delay between requests
+		time.Sleep(rateLimitDelay)
+
+		req, err := http.NewRequest("GET", fullURL, nil)
+		if err != nil {
+			return err
+		}
+
+		req.Header.Set("User-Agent", c.userAgent)
+		req.Header.Set("Accept", c.accept)
+
+		resp, err := c.client.Do(req)
+		if err != nil {
+			lastErr = err
+			log.Printf("[scryball] Request failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+			if attempt < maxRetries {
+				delay := calculateBackoff(attempt, 0)
+				log.Printf("[scryball] Retrying after %v...", delay)
+				time.Sleep(delay)
+				continue
+			}
+			return fmt.Errorf("API request failed after %d attempts: %w", maxRetries, lastErr)
+		}
+
+		// Handle 429 Too Many Requests with retry
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+			resp.Body.Close()
+
+			log.Printf("[scryball] Rate limited (429) on %s - Retry-After: %v", endpoint, retryAfter)
+
+			if attempt < maxRetries {
+				delay := calculateBackoff(attempt, retryAfter)
+				log.Printf("[scryball] Backing off for %v (attempt %d/%d)...", delay, attempt+1, maxRetries)
+				sleepWithCountdown(delay)
+				continue
+			}
+
+			return fmt.Errorf("API request rate limited (429) after %d retries: %s", maxRetries, endpoint)
+		}
+
+		// Handle other non-OK status codes
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, endpoint)
+		}
+
+		// Success - decode and return
+		defer resp.Body.Close()
+		return json.NewDecoder(resp.Body).Decode(result)
 	}
 
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Accept", c.accept)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API request failed with status %d", resp.StatusCode)
-	}
-
-	return json.NewDecoder(resp.Body).Decode(result)
+	return fmt.Errorf("API request failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 func (c *Client) GetCard(id string) (*Card, error) {

@@ -173,10 +173,23 @@ func (sb *Scryball) findQuery(ctx context.Context, query string) ([]*MagicCard, 
 	oracleIDs := make([]string, 0, len(oracleMap))
 
 	for oracleID, sampleCard := range oracleMap {
-		// InsertCardFromAPI already fetches and stores ALL printings for the card
-		magicCard, err := sb.InsertCardFromAPI(ctx, sampleCard)
-		if err != nil {
-			return nil, err
+		var magicCard *MagicCard
+
+		_, err := sb.queries.GetCardByOracleID(ctx, oracleID)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("database error searching for oracle_id %s: %v", oracleID, err)
+		}
+
+		if err == sql.ErrNoRows {
+			magicCard, err = sb.InsertCardFromAPI(ctx, sampleCard)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			magicCard, err = sb.FetchCardByExactOracleID(ctx, oracleID)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		magicCards = append(magicCards, magicCard)
