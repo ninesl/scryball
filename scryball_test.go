@@ -84,6 +84,9 @@ func TestQuery(t *testing.T) {
 		if cachedCards[0].OracleID == nil || cards[0].OracleID == nil || *cachedCards[0].OracleID != *cards[0].OracleID {
 			t.Error("Cached card should have same oracle ID as original")
 		}
+		if len(cachedCards[0].Keywords) != len(cards[0].Keywords) {
+			t.Errorf("Expected %d cached keywords, got %d", len(cards[0].Keywords), len(cachedCards[0].Keywords))
+		}
 	})
 
 	t.Run("with_context", func(t *testing.T) {

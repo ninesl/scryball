@@ -238,7 +238,7 @@ func (sb *Scryball) findCardOracleID(ctx context.Context, oracleID string) (*Mag
 		// Card found in database, build and return it
 		return sb.buildMagicCardFromDB(ctx, dbCard.OracleID, dbCard.Name, dbCard.Layout, dbCard.Cmc,
 			dbCard.ColorIdentity, dbCard.Colors, dbCard.ManaCost, dbCard.OracleText,
-			dbCard.TypeLine, dbCard.Power, dbCard.Toughness)
+			dbCard.TypeLine, dbCard.Power, dbCard.Toughness, dbCard.Keywords)
 	}
 
 	if err != sql.ErrNoRows {

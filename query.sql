@@ -261,14 +261,14 @@ SELECT COUNT(*) FROM cards WHERE oracle_id = ? LIMIT 1;
 
 -- Get a card by oracle_id
 -- name: GetCardByOracleID :one
-SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness
+SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
 FROM cards 
 WHERE oracle_id = ? 
 LIMIT 1;
 
 -- Get a card by exact name
 -- name: GetCardByName :one
-SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness
+SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
 FROM cards 
 WHERE LOWER(name) = LOWER(?) 
 LIMIT 1;

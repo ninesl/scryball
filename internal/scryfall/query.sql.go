@@ -474,7 +474,7 @@ func (q *Queries) GetCachedQuery(ctx context.Context, queryText string) (QueryCa
 }
 
 const getCardByName = `-- name: GetCardByName :one
-SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness
+SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
 FROM cards 
 WHERE LOWER(name) = LOWER(?) 
 LIMIT 1
@@ -492,6 +492,7 @@ type GetCardByNameRow struct {
 	TypeLine      string
 	Power         sql.NullString
 	Toughness     sql.NullString
+	Keywords      string
 }
 
 // Get a card by exact name
@@ -510,12 +511,13 @@ func (q *Queries) GetCardByName(ctx context.Context, lower string) (GetCardByNam
 		&i.TypeLine,
 		&i.Power,
 		&i.Toughness,
+		&i.Keywords,
 	)
 	return i, err
 }
 
 const getCardByOracleID = `-- name: GetCardByOracleID :one
-SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness
+SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
 FROM cards 
 WHERE oracle_id = ? 
 LIMIT 1
@@ -533,6 +535,7 @@ type GetCardByOracleIDRow struct {
 	TypeLine      string
 	Power         sql.NullString
 	Toughness     sql.NullString
+	Keywords      string
 }
 
 // Get a card by oracle_id
@@ -551,6 +554,7 @@ func (q *Queries) GetCardByOracleID(ctx context.Context, oracleID string) (GetCa
 		&i.TypeLine,
 		&i.Power,
 		&i.Toughness,
+		&i.Keywords,
 	)
 	return i, err
 }
