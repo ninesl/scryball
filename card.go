@@ -29,6 +29,7 @@ type Printing struct {
 	SetName     string   `json:"set_name"`
 	Rarity      string   `json:"rarity"`
 	ImageURI    string   `json:"image_uri"`
+	ArtCropURI  string   `json:"art_crop_uri"`
 	ScryfallURI string   `json:"scryfall_uri"`
 	Games       []string `json:"games"`
 	ReleasedAt  string   `json:"released_at"`
@@ -266,6 +267,7 @@ func (s *Scryball) getPrintingsFromDB(ctx context.Context, oracleID string) ([]P
 		if dbPrinting.ImageUris.Valid && dbPrinting.ImageUris.String != "" {
 			var imageUris map[string]string
 			if err := json.Unmarshal([]byte(dbPrinting.ImageUris.String), &imageUris); err == nil {
+				printing.ArtCropURI = imageUris["art_crop"]
 				// Use normal image URI if available, fallback to small or large
 				if uri, ok := imageUris["normal"]; ok {
 					printing.ImageURI = uri
