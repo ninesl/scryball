@@ -168,7 +168,11 @@ func convertAPICardToDBParams(card *client.Card) (scryfall.UpsertCardParams, scr
 	finishesJSON, _ := json.Marshal(card.Finishes)
 	frameEffectsJSON, _ := json.Marshal(card.FrameEffects)
 	gamesJSON, _ := json.Marshal(card.Games)
-	imageUrisJSON, _ := json.Marshal(card.ImageURIs)
+	imageURIs := card.ImageURIs
+	if len(imageURIs) == 0 && len(card.CardFaces) > 0 {
+		imageURIs = card.CardFaces[0].ImageURIs
+	}
+	imageUrisJSON, _ := json.Marshal(imageURIs)
 	pricesJSON, _ := json.Marshal(card.Prices)
 	promoTypesJSON, _ := json.Marshal(card.PromoTypes)
 	purchaseUrisJSON, _ := json.Marshal(card.PurchaseURIs)

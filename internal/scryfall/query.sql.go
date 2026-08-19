@@ -474,7 +474,7 @@ func (q *Queries) GetCachedQuery(ctx context.Context, queryText string) (QueryCa
 }
 
 const getCardByName = `-- name: GetCardByName :one
-SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
+SELECT oracle_id, name, layout, card_faces, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
 FROM cards 
 WHERE LOWER(name) = LOWER(?) 
 LIMIT 1
@@ -484,6 +484,7 @@ type GetCardByNameRow struct {
 	OracleID      string
 	Name          string
 	Layout        string
+	CardFaces     sql.NullString
 	Cmc           float64
 	ColorIdentity string
 	Colors        sql.NullString
@@ -503,6 +504,7 @@ func (q *Queries) GetCardByName(ctx context.Context, lower string) (GetCardByNam
 		&i.OracleID,
 		&i.Name,
 		&i.Layout,
+		&i.CardFaces,
 		&i.Cmc,
 		&i.ColorIdentity,
 		&i.Colors,
@@ -517,7 +519,7 @@ func (q *Queries) GetCardByName(ctx context.Context, lower string) (GetCardByNam
 }
 
 const getCardByOracleID = `-- name: GetCardByOracleID :one
-SELECT oracle_id, name, layout, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
+SELECT oracle_id, name, layout, card_faces, cmc, color_identity, colors, mana_cost, oracle_text, type_line, power, toughness, keywords
 FROM cards 
 WHERE oracle_id = ? 
 LIMIT 1
@@ -527,6 +529,7 @@ type GetCardByOracleIDRow struct {
 	OracleID      string
 	Name          string
 	Layout        string
+	CardFaces     sql.NullString
 	Cmc           float64
 	ColorIdentity string
 	Colors        sql.NullString
@@ -546,6 +549,7 @@ func (q *Queries) GetCardByOracleID(ctx context.Context, oracleID string) (GetCa
 		&i.OracleID,
 		&i.Name,
 		&i.Layout,
+		&i.CardFaces,
 		&i.Cmc,
 		&i.ColorIdentity,
 		&i.Colors,

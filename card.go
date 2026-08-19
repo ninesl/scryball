@@ -124,7 +124,7 @@ func (s *Scryball) FetchCardByExactName(ctx context.Context, name string) (*Magi
 	}
 
 	return s.buildMagicCardFromDB(ctx, dbCard.OracleID, dbCard.Name, dbCard.Layout, dbCard.Cmc,
-		dbCard.ColorIdentity, dbCard.Colors, dbCard.ManaCost, dbCard.OracleText,
+		dbCard.CardFaces, dbCard.ColorIdentity, dbCard.Colors, dbCard.ManaCost, dbCard.OracleText,
 		dbCard.TypeLine, dbCard.Power, dbCard.Toughness, dbCard.Keywords)
 }
 
@@ -152,7 +152,7 @@ func (s *Scryball) FetchCardByExactOracleID(ctx context.Context, oracleID string
 	}
 
 	return s.buildMagicCardFromDB(ctx, dbCard.OracleID, dbCard.Name, dbCard.Layout, dbCard.Cmc,
-		dbCard.ColorIdentity, dbCard.Colors, dbCard.ManaCost, dbCard.OracleText,
+		dbCard.CardFaces, dbCard.ColorIdentity, dbCard.Colors, dbCard.ManaCost, dbCard.OracleText,
 		dbCard.TypeLine, dbCard.Power, dbCard.Toughness, dbCard.Keywords)
 }
 
@@ -184,7 +184,7 @@ func (s *Scryball) FetchCardsByExactOracleIDs(ctx context.Context, oracleIDs []s
 }
 
 func (s *Scryball) buildMagicCardFromDB(ctx context.Context, oracleID, name, layout string, cmc float64,
-	colorIdentity string, colors sql.NullString, manaCost, oracleText sql.NullString,
+	cardFaces sql.NullString, colorIdentity string, colors sql.NullString, manaCost, oracleText sql.NullString,
 	typeLine string, power, toughness sql.NullString, keywords string) (*MagicCard, error) {
 
 	card := &client.Card{
@@ -197,6 +197,11 @@ func (s *Scryball) buildMagicCardFromDB(ctx context.Context, oracleID, name, lay
 
 	if oracleID != "" {
 		card.OracleID = &oracleID
+	}
+	if cardFaces.Valid && cardFaces.String != "" {
+		if err := json.Unmarshal([]byte(cardFaces.String), &card.CardFaces); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal card faces for oracle_id %s: %v", oracleID, err)
+		}
 	}
 
 	if manaCost.Valid {
