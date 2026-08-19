@@ -35,4 +35,7 @@ func TestImportAndFetchMultifaceCard(t *testing.T) {
 	if got := card.Printings[0].ArtCropURI; got != "https://example.test/boggart-trawler-art.jpg" {
 		t.Fatalf("printing ArtCropURI = %q", got)
 	}
+	if got := card.Printings[0].ImageURIs; len(got) != 2 || got[0] != "https://example.test/boggart-trawler.jpg" || got[1] != "https://example.test/boggart-bog.jpg" {
+		t.Fatalf("printing ImageURIs = %#v", got)
+	}
 }

@@ -29,6 +29,7 @@ type Printing struct {
 	SetName     string   `json:"set_name"`
 	Rarity      string   `json:"rarity"`
 	ImageURI    string   `json:"image_uri"`
+	ImageURIs   []string `json:"image_uris"`
 	ArtCropURI  string   `json:"art_crop_uri"`
 	ScryfallURI string   `json:"scryfall_uri"`
 	Games       []string `json:"games"`
@@ -280,6 +281,18 @@ func (s *Scryball) getPrintingsFromDB(ctx context.Context, oracleID string) ([]P
 					printing.ImageURI = uri
 				} else if uri, ok := imageUris["large"]; ok {
 					printing.ImageURI = uri
+				}
+				if printing.ImageURI != "" {
+					printing.ImageURIs = append(printing.ImageURIs, printing.ImageURI)
+				}
+				for face := 1; ; face++ {
+					uri, ok := imageUris[fmt.Sprintf("normal_face_%d", face)]
+					if !ok {
+						break
+					}
+					if uri != "" {
+						printing.ImageURIs = append(printing.ImageURIs, uri)
+					}
 				}
 			}
 		}
