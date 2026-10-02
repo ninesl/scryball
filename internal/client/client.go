@@ -284,10 +284,13 @@ func (c *Client) FetchAllPrintings(card *Card) ([]Card, error) {
 	// Follow pagination to get all pages
 	for list.HasMore && list.NextPage != nil {
 		// Use the full URL from NextPage directly
-		err = c.makeRequest(list.NextPage.RequestURI(), &list)
+		// Decode into a fresh list so pointer fields in earlier printings stay intact.
+		var nextList List
+		err = c.makeRequest(list.NextPage.RequestURI(), &nextList)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch next page of printings for card '%s': %w", card.Name, err)
 		}
+		list = nextList
 
 		// Add this page's results
 		allPrintings = append(allPrintings, list.Data...)
@@ -698,11 +701,13 @@ func (c *Client) SearchAllCardsByQuery(query string) ([]Card, error) {
 			nextEndpoint += "?" + list.NextPage.RawQuery
 		}
 
-		// Make request for next page
-		err = c.makeRequest(nextEndpoint, &list)
+		// Decode into a fresh list so pointer fields in earlier cards stay intact.
+		var nextList List
+		err = c.makeRequest(nextEndpoint, &nextList)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch next page: %v", err)
 		}
+		list = &nextList
 
 		// Add this page's results
 		allCards = append(allCards, list.Data...)
