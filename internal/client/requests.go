@@ -30,11 +30,13 @@ func (c *Client) QueryForCards(scryfallQuery string) ([]Card, error) {
 			nextEndpoint += "?" + list.NextPage.RawQuery
 		}
 
-		// Make request for next page
-		err = c.makeRequest(nextEndpoint, &list)
+		// Decode into a fresh list so pointer fields in earlier cards stay intact.
+		var nextList List
+		err = c.makeRequest(nextEndpoint, &nextList)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch next page: %w", err)
 		}
+		list = nextList
 
 		// Add this page's results
 		allCards = append(allCards, list.Data...)
